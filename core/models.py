@@ -1,8 +1,10 @@
 # -*- encoding: utf-8 -*-
 
-from django.db import models
+from django.db import models, IntegrityError, transaction
 from django.utils.text import slugify
+from datetime import datetime
 
+import re
 
 TIPO_TELEFONE = (
     ('celular',"Móvel Pessoal"),
@@ -39,6 +41,38 @@ class BaseModel(models.Model):
     data_criacao = models.DateTimeField(auto_now_add=True)
     ultima_alteracao = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        abstract = True # <--- denotes our model as abstract
+
+class SlugModel(BaseModel):
+    """Esta classe é utilizada para Models que necessitam do campo slug"""
+
+    class Meta:
+        abstract = True # <--- denotes our model as abstract
+
+    slugfield = "name"
+
+    def save(self, *args, **kwargs):
+        """Auto-populate an empty slug field from the MyModel name and
+        if it conflicts with an existing slug then append a number and try
+        saving again.
+        """
+        if not self.slug:
+            self.slug = slugify(getattr(self, self.slugfield))  # Where self.name is the field used for 'pre-populate from'
+
+        while True:
+            try:
+                res = super(SlugModel, self).save(*args, **kwargs)
+                return res
+            except IntegrityError:
+                match_obj = re.match(r'^(.*)-(\d+)$', self.slug)
+                if match_obj:
+                    next_int = int(match_obj.group(2)) + 1
+                    self.slug = match_obj.group(1) + '-' + str(next_int)
+                else:
+                    self.slug += '-2'
+            else:
+                break
 
 class Telefone(BaseModel):
     """Dados telefonicos do cliente"""
@@ -48,11 +82,14 @@ class Telefone(BaseModel):
     operadora = models.CharField(max_length=50, choices=OPERADORAS)
     whatsapp = models.BooleanField(default=False)
 
-class Cliente(BaseModel):
+
+class Cliente(SlugModel):
+    slugfield = "nome"
+
     """Os clientes"""
     nome = models.CharField(max_length=255)
     nome_contato = models.CharField(max_length=255)
-    telefone = models.ForeignKey(Telefone)
+    telefone = models.ForeignKey(Telefone, null=True, blank=True)
     email = models.EmailField()
     skype = models.CharField(max_length=1255, blank=True)
     facebook = models.CharField(max_length=1255, blank=True)
